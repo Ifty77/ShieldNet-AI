@@ -1,91 +1,66 @@
-from flask import Blueprint, request, jsonify
-from src.hybrid_waf.utils.signature_checker import check_signature
-import logging
-import os
+"""The /check_request analyzer endpoint used by the WAF's own test UI.
 
-proxy_bp = Blueprint('proxy', __name__)
+This shares the decision engine with the gateway, so what you see here is
+exactly what the gateway would do to a real request.
+"""
 
-# Make sure logs folder exists
-os.makedirs('logs', exist_ok=True)
+from flask import Blueprint, jsonify, request
 
-# Create a dedicated logger for WAF detections
-waf_logger = logging.getLogger('waf_detections')
-waf_logger.setLevel(logging.INFO)
+from src.hybrid_waf.core.engine import evaluate
+from src.hybrid_waf.core.request_parser import parse_request_line
 
-# Prevent duplicate handlers in debug mode
-if not waf_logger.handlers:
-    fh = logging.FileHandler('logs/detections.log')
-    fh.setLevel(logging.INFO)
-
-    formatter = logging.Formatter(
-        '%(asctime)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    fh.setFormatter(formatter)
-    waf_logger.addHandler(fh)
+proxy_bp = Blueprint("proxy", __name__)
 
 
-@proxy_bp.route('/check_request', methods=['POST'])
+@proxy_bp.route("/check_request", methods=["POST"])
 def check_request():
     data = request.get_json(silent=True) or {}
-
-    user_input = data.get("user_request", "").strip()
-    uri = data.get("uri", user_input).strip()
-    get_data = data.get("get_data", "").strip()
-    post_data = data.get("post_data", "").strip()
+    user_input = (data.get("user_request") or "").strip()
 
     if not user_input:
-        return jsonify({
-            "status": "error",
-            "message": "No request provided."
-        }), 400
+        return jsonify({"status": "error", "message": "No request provided."}), 400
 
-    # --- Step 1: Signature-Based Detection ---
-    signature_result = check_signature(user_input)
-    signature_status = signature_result["status"]
+    parsed = parse_request_line(user_input)
+    decision = evaluate(parsed)
 
-    if signature_status == "valid":
-        waf_logger.info(f"{user_input} - valid")
-        return jsonify({
-            "status": "valid",
-            "message": "All Clear! Your request passed our security checks with flying colors. ✨"
-        })
+    payload = {
+        "status": decision.status,
+        "action": decision.action,
+        "category": decision.category,
+        "location": decision.location,
+        "layer": decision.layer,
+        "mode": decision.mode,
+        "enforced": decision.enforced,
+    }
 
-    if signature_status == "malicious":
-        waf_logger.info(f"{user_input} - malicious(signature)")
-        return jsonify({
-            "status": "malicious",
-            "message": "Critical Alert! Malicious pattern detected in your request. Access Denied! 🔒"
-        })
-
-    # --- Step 2: ML-Based Anomaly Detection ---
-    if signature_status == "obfuscated":
-        from src.hybrid_waf.utils.preprocessor import extract_features
-        from src.hybrid_waf.utils.ml_checker import check_ml_prediction
-
-        features = extract_features(uri, get_data, post_data)
-        prediction = check_ml_prediction(features)
-
-        final_status = "malicious" if prediction == 1 else "valid"
-
-        waf_logger.info(
-            f"{user_input} - malicious(ML)" if prediction == 1
-            else f"{user_input} - valid"
+    if decision.status == "malicious":
+        payload["message"] = (
+            "Critical Alert! Malicious pattern detected in your request. Access Denied! \U0001f512"
         )
+        payload["detail"] = _describe(decision)
+        return jsonify(payload)
 
-        return jsonify({
-            "status": "obfuscated",
-            "final_status": final_status,
-            "message": "Suspicious Pattern Detected - Engaging Advanced AI Analysis...",
-            "ml_verdict": (
-                "🚨 Threat Confirmed! AI Defense System Blocked Suspicious Activity. 🔒"
-                if final_status == "malicious"
-                else "✅ Advanced AI Scan Complete: Request Verified Safe ✨"
-            ),
-            "features": features
-        })
+    if decision.status == "obfuscated":
+        payload["final_status"] = "malicious" if decision.action == "block" else "valid"
+        payload["features"] = decision.features
+        payload["ml_prediction"] = decision.ml_prediction
+        payload["message"] = "Suspicious Pattern Detected - Engaging Advanced AI Analysis..."
+        if decision.ml_prediction is None:
+            payload["ml_verdict"] = "\u26a0\ufe0f ML model unavailable - allowed on signature evidence alone."
+        elif decision.action == "block":
+            payload["ml_verdict"] = "\U0001f6a8 Threat Confirmed! AI Defense System Blocked Suspicious Activity. \U0001f512"
+        else:
+            payload["ml_verdict"] = "\u2705 Advanced AI Scan Complete: Request Verified Safe \u2728"
+        payload["detail"] = _describe(decision)
+        return jsonify(payload)
 
-    return jsonify({
-        "status": "error",
-        "message": "Unknown detection result."
-    }), 500
+    payload["message"] = "All Clear! Your request passed our security checks with flying colors. \u2728"
+    return jsonify(payload)
+
+
+def _describe(decision) -> str:
+    """Human-readable explanation of where and why a request tripped a rule."""
+    if not decision.location:
+        return ""
+    category = (decision.category or "unknown").replace("_", " ")
+    return f"Matched {category} in {decision.location}"

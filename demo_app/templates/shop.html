@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fernwood Supply</title>
+<style>
+  :root{
+    --bg:#F2F4F3; --surface:#FFFFFF; --ink:#16241F; --muted:#5C6B66;
+    --accent:#2F6F4E; --accent-soft:#E7F0EB; --border:#DDE3E0; --warn:#9A3412;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  .wrap{max-width:940px;margin:0 auto;padding:0 20px}
+
+  header{background:var(--surface);border-bottom:1px solid var(--border)}
+  .bar{display:flex;align-items:baseline;gap:18px;padding:18px 0;flex-wrap:wrap}
+  .mark{font-family:Georgia,"Times New Roman",serif;font-size:23px;letter-spacing:-.01em}
+  .mark span{color:var(--accent)}
+  .tag{color:var(--muted);font-size:13.5px}
+  .shield{
+    margin-left:auto;font-size:12.5px;color:var(--accent);
+    background:var(--accent-soft);border-radius:20px;padding:5px 11px;white-space:nowrap;
+  }
+
+  .searchbar{display:flex;gap:8px;padding-bottom:18px}
+  .searchbar input{
+    flex:1;padding:10px 13px;border:1px solid var(--border);border-radius:7px;
+    font-size:15px;background:var(--surface);color:var(--ink);min-width:0;
+  }
+  .searchbar input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  button{
+    padding:10px 17px;border:0;border-radius:7px;background:var(--accent);
+    color:#fff;font-size:15px;cursor:pointer;font-family:inherit;
+  }
+  button:hover{background:#255A3F}
+  button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  main{padding:30px 0 60px}
+  h2{font-size:15px;font-weight:600;margin:0 0 14px;color:var(--muted)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+  .item{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:15px}
+  .item h3{margin:0 0 3px;font-size:15.5px;font-weight:600;line-height:1.35}
+  .cat{color:var(--muted);font-size:13px}
+  .price{margin-top:9px;font-size:17px;color:var(--accent);font-variant-numeric:tabular-nums}
+
+  .empty{
+    background:var(--surface);border:1px dashed var(--border);border-radius:9px;
+    padding:26px;color:var(--muted);text-align:center
+  }
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:38px}
+  @media(max-width:700px){.split{grid-template-columns:1fr}}
+  .panel{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:18px}
+  label{display:block;font-size:13px;color:var(--muted);margin:11px 0 4px}
+  .panel input,.panel textarea{
+    width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;
+    font:inherit;font-size:14.5px;background:#FBFCFB;color:var(--ink)
+  }
+  .panel textarea{min-height:66px;resize:vertical}
+  .panel button{margin-top:13px;width:100%}
+  .note{margin-top:11px;font-size:13.5px;min-height:19px}
+  .note.ok{color:var(--accent)}
+  .note.bad{color:var(--warn)}
+
+  .comment{border-top:1px solid var(--border);padding:11px 0;font-size:14.5px}
+  .comment:first-of-type{border-top:0}
+  .comment b{font-weight:600}
+  .comment p{margin:3px 0 0;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="bar">
+      <div class="mark">Fernwood <span>Supply</span></div>
+      <div class="tag">Desk, trail, and everything between</div>
+      <div class="shield">Protected by ShieldNet-AI</div>
+    </div>
+    <form class="searchbar" method="get" action="/search">
+      <input name="q" value="{{ query|e }}" placeholder="Search the catalogue" aria-label="Search products">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+</header>
+
+<main class="wrap">
+  <h2>{% if query %}Results for "{{ query|e }}"{% else %}Catalogue{% endif %}</h2>
+
+  {% if results %}
+    <div class="grid">
+      {% for p in results %}
+        <article class="item">
+          <h3>{{ p.name }}</h3>
+          <div class="cat">{{ p.category }}</div>
+          <div class="price">${{ '%.2f'|format(p.price) }}</div>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty">Nothing matched that search. Try "shoes" or "book".</div>
+  {% endif %}
+
+  <div class="split">
+    <section class="panel">
+      <h2>Sign in</h2>
+      <label for="u">Username</label>
+      <input id="u" value="alice" autocomplete="username">
+      <label for="p">Password</label>
+      <input id="p" type="password" value="wonderland" autocomplete="current-password">
+      <button id="loginBtn">Sign in</button>
+      <div class="note" id="loginNote"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Leave a comment</h2>
+      <label for="a">Name</label>
+      <input id="a" value="bob">
+      <label for="c">Comment</label>
+      <textarea id="c" placeholder="What did you think?"></textarea>
+      <button id="cBtn">Post comment</button>
+      <div class="note" id="cNote"></div>
+    </section>
+  </div>
+
+  <section class="panel" style="margin-top:18px">
+    <h2>Recent comments</h2>
+    <div id="clist"><div class="cat">No comments yet.</div></div>
+  </section>
+</main>
+
+<script>
+// Every call goes to the current origin, which is the WAF gateway on :5000.
+// Blocked requests come back as 403 and never reach this application.
+async function send(path, body, note, okMsg){
+  const el = document.getElementById(note);
+  el.className = "note";
+  el.textContent = "Sending...";
+  try{
+    const r = await fetch(path, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body)
+    });
+    const d = await r.json().catch(()=>({}));
+    if(r.status === 403){
+      const det = d.detection || {};
+      el.className = "note bad";
+      el.textContent = `Blocked by ShieldNet-AI — ${det.category || "policy"} in ${det.location || "request"}.`;
+      return null;
+    }
+    if(!r.ok){
+      el.className = "note bad";
+      el.textContent = d.message || `Request failed (HTTP ${r.status}).`;
+      return null;
+    }
+    el.className = "note ok";
+    el.textContent = okMsg(d);
+    return d;
+  }catch(err){
+    el.className = "note bad";
+    el.textContent = "Could not reach the server.";
+    return null;
+  }
+}
+
+document.getElementById("loginBtn").onclick = () =>
+  send("/login",
+    {username:document.getElementById("u").value, password:document.getElementById("p").value},
+    "loginNote",
+    d => `Signed in as ${d.user}.`);
+
+document.getElementById("cBtn").onclick = async () => {
+  const d = await send("/comments",
+    {author:document.getElementById("a").value, comment:document.getElementById("c").value},
+    "cNote",
+    () => "Comment posted.");
+  if(d){ document.getElementById("c").value = ""; loadComments(); }
+};
+
+async function loadComments(){
+  try{
+    const r = await fetch("/comments", {headers:{"Accept":"application/json"}});
+    const d = await r.json();
+    const box = document.getElementById("clist");
+    if(!d.comments || !d.comments.length){
+      box.innerHTML = '<div class="cat">No comments yet.</div>';
+      return;
+    }
+    box.innerHTML = d.comments.map(c =>
+      `<div class="comment"><b></b><p></p></div>`).join("");
+    // Assign as text, never HTML, so stored content cannot execute here.
+    box.querySelectorAll(".comment").forEach((node,i)=>{
+      node.querySelector("b").textContent = d.comments[i].author;
+      node.querySelector("p").textContent = d.comments[i].comment;
+    });
+  }catch(e){ /* leave the placeholder in place */ }
+}
+loadComments();
+</script>
+</body>
+</html>

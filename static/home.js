@@ -11,10 +11,27 @@ document.getElementById("submit-btn").addEventListener("click", function () {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ user_request: userInput })
     })
-    .then(response => response.json())
-    .then(data => {
+    .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, data })))
+    .then(({ ok, status, data }) => {
         // Hide loading animation
         document.getElementById("loading").style.display = "none";
+
+        // A non-2xx response is an error, no matter what the body says.
+        // Previously these fell through to the success branch and were shown
+        // to the user as a green "All Clear" box.
+        if (!ok || data.status === "error") {
+            resultDiv.innerHTML = `
+                <div class="result-box error">
+                    <div class="result-icon">⚠️</div>
+                    <div class="result-message">
+                        <div class="pulse-text">Analysis Failed</div>
+                        <div class="sub-text">${(data && data.message) ? data.message : "Server returned HTTP " + status + "."}</div>
+                    </div>
+                </div>
+            `;
+            resultDiv.querySelector('.result-box').classList.add('fade-in');
+            return;
+        }
 
         // Enhanced result display with animations
         if (data.status === "malicious") {
@@ -23,7 +40,7 @@ document.getElementById("submit-btn").addEventListener("click", function () {
                     <div class="result-icon">🚨</div>
                     <div class="result-message">
                         <div class="pulse-text">${data.message}</div>
-                        <div class="sub-text">Our security system has detected and blocked this malicious request.</div>
+                        <div class="sub-text">${data.detail ? data.detail : "Our security system has detected and blocked this malicious request."}</div>
                     </div>
                 </div>
             `;
@@ -35,7 +52,7 @@ document.getElementById("submit-btn").addEventListener("click", function () {
                     <div class="result-message">
                         <div class="pulse-text">${data.message}</div>
                         <div class="ai-verdict">${data.ml_verdict}</div>
-                        <div class="sub-text">AI-powered deep analysis complete.</div>
+                        <div class="sub-text">${data.detail ? data.detail : "AI-powered deep analysis complete."}</div>
                     </div>
                 </div>
             `;
@@ -131,6 +148,11 @@ const styles = `
         transform: scale(1.03);
         box-shadow: 0 0 20px rgba(222, 49, 99, 0.5);
     }
+}
+
+.result-box.error {
+    background: rgba(255, 170, 0, 0.1);
+    border: 1px solid rgba(255, 170, 0, 0.35);
 }
 
 .result-box.success {

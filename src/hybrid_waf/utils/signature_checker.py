@@ -1,5 +1,5 @@
 import re
-from urllib.parse import unquote
+from src.hybrid_waf.core.request_parser import normalize_text
 
 # -----------------------------
 # Attack pattern groups
@@ -110,51 +110,114 @@ OBFUSCATION_PATTERNS = [
 ]
 
 
+# Precompile once at import. Regex compilation in a per-request loop is the
+# single biggest avoidable cost in the signature layer.
+COMPILED_GROUPS = {
+    category: [(re.compile(p, re.IGNORECASE | re.DOTALL), p) for p in patterns]
+    for category, patterns in PATTERN_GROUPS.items()
+}
+COMPILED_OBFUSCATION = [
+    (re.compile(p, re.IGNORECASE | re.DOTALL), p) for p in OBFUSCATION_PATTERNS
+]
+
+
 def normalize_input(user_input: str) -> str:
-    if not user_input:
-        return ""
-    text = " ".join(user_input.split())
-    decoded_once = unquote(text)
-    decoded_twice = unquote(decoded_once)
-    return decoded_twice
+    """Kept for backwards compatibility. Delegates to the canonical normalizer."""
+    return normalize_text(user_input)
 
 
-def check_signature(user_input: str):
+def _scan(text: str):
+    """Scan one string. Returns (status, category, pattern) or None if clean."""
+    normalized = normalize_text(text)
+    if not normalized:
+        return None
+
+    for category, patterns in COMPILED_GROUPS.items():
+        for compiled, raw in patterns:
+            if compiled.search(normalized):
+                return ("malicious", category, raw)
+
+    for compiled, raw in COMPILED_OBFUSCATION:
+        if compiled.search(normalized):
+            return ("obfuscated", "obfuscation", raw)
+
+    return None
+
+
+def check_signature(user_input: str) -> dict:
+    """Scan a single string.
+
+    Returns:
+        {
+            "status": "malicious" | "obfuscated" | "valid",
+            "category": str | None,
+            "matched_pattern": str | None,
+            "location": str | None,
+            "normalized_input": str,
+        }
     """
-    Returns a dict:
-    {
-        "status": "malicious" | "obfuscated" | "valid",
-        "category": "sql_injection" | "xss" | ... | None,
-        "matched_pattern": "<regex>" | None,
-        "normalized_input": "<decoded text>"
+    normalized = normalize_text(user_input)
+    hit = _scan(user_input)
+
+    if hit is None:
+        return {
+            "status": "valid",
+            "category": None,
+            "matched_pattern": None,
+            "location": None,
+            "normalized_input": normalized,
+        }
+
+    status, category, pattern = hit
+    return {
+        "status": status,
+        "category": category,
+        "matched_pattern": pattern,
+        "location": None,
+        "normalized_input": normalized,
     }
+
+
+def check_parsed_request(parsed) -> dict:
+    """Scan every inspection point of a ParsedRequest.
+
+    A malicious hit short-circuits immediately. An obfuscated hit is remembered
+    but scanning continues, because a later field may be outright malicious and
+    that is the stronger verdict.
     """
-    normalized = normalize_input(user_input)
+    obfuscated_hit = None
 
-    # Check direct malicious patterns
-    for category, patterns in PATTERN_GROUPS.items():
-        for pattern in patterns:
-            if re.search(pattern, normalized, re.IGNORECASE | re.DOTALL):
-                return {
-                    "status": "malicious",
-                    "category": category,
-                    "matched_pattern": pattern,
-                    "normalized_input": normalized
-                }
+    for location, value in parsed.inspection_points():
+        hit = _scan(value)
+        if hit is None:
+            continue
 
-    # Check obfuscation patterns
-    for pattern in OBFUSCATION_PATTERNS:
-        if re.search(pattern, normalized, re.IGNORECASE | re.DOTALL):
+        status, category, pattern = hit
+        if status == "malicious":
             return {
-                "status": "obfuscated",
-                "category": "obfuscation",
+                "status": "malicious",
+                "category": category,
                 "matched_pattern": pattern,
-                "normalized_input": normalized
+                "location": location,
+                "normalized_input": normalize_text(value),
             }
+
+        if obfuscated_hit is None:
+            obfuscated_hit = {
+                "status": "obfuscated",
+                "category": category,
+                "matched_pattern": pattern,
+                "location": location,
+                "normalized_input": normalize_text(value),
+            }
+
+    if obfuscated_hit:
+        return obfuscated_hit
 
     return {
         "status": "valid",
         "category": None,
         "matched_pattern": None,
-        "normalized_input": normalized
+        "location": None,
+        "normalized_input": "",
     }
